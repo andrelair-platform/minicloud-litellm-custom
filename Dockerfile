@@ -1,4 +1,4 @@
-ARG LITELLM_VERSION=1.90.3-prisma-v3
+ARG LITELLM_VERSION=1.90.3-langfuse-v1
 FROM ghcr.io/berriai/litellm-database:main-latest
 
 # The image pre-downloads Prisma engine binaries to /root/.cache (mode 700, root-only).
@@ -17,3 +17,7 @@ RUN apk add --no-cache libatomic
 # google-generativeai is missing — bootstrap pip via ensurepip then install.
 RUN /app/.venv/bin/python -m ensurepip && \
     /app/.venv/bin/python -m pip install --no-cache-dir 'google-generativeai>=0.8.0'
+
+# Langfuse prompt handler — fetches production-labelled phi3-financial system prompt
+# at request time so rollback = flip a label in Langfuse UI (no pod restart needed).
+COPY langfuse_prompt_handler.py /app/langfuse_prompt_handler.py
