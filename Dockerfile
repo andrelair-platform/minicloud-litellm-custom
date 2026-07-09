@@ -1,4 +1,4 @@
-ARG LITELLM_VERSION=1.90.3-prisma-v4
+ARG LITELLM_VERSION=1.90.3-prisma-v5
 FROM ghcr.io/berriai/litellm-database:main-latest
 
 # The image pre-downloads Prisma engine binaries to /root/.cache (mode 700, root-only).
@@ -18,45 +18,74 @@ RUN apk add --no-cache libatomic
 RUN /app/.venv/bin/python -m ensurepip && \
     /app/.venv/bin/python -m pip install --no-cache-dir 'google-generativeai>=0.8.0'
 
-# LiteLLM bug: load_config() assigns `general_settings = config.get("general_settings", {})`
-# into a local variable (no `global general_settings` in scope). The module-level dict
-# stays empty, so auth_utils.route_in_additonal_public_routes() always finds public_routes=[]
-# and /v1/models (and any other custom public route) stays 401.
-# Fix: after the local assignment, sync the public_routes key into the module-level dict.
+# LiteLLM open-source limitation: route_in_additonal_public_routes() is gated on
+# premium_user — `if premium_user is not True: return False` short-circuits before
+# checking public_routes, making the config key a no-op in the community edition.
+# Two-part fix:
+#   1. auth_utils.py: remove the premium_user gate so public_routes works for all tiers
+#   2. proxy_server.py: sync public_routes from config's local general_settings into the
+#      module-level dict (load_config uses a local var without `global general_settings`)
 RUN /app/.venv/bin/python - <<'PYEOF'
 import sys
 
+auth_utils = "/app/.venv/lib/python3.13/site-packages/litellm/proxy/auth/auth_utils.py"
 proxy_server = "/app/.venv/lib/python3.13/site-packages/litellm/proxy/proxy_server.py"
 
+# --- Patch 1: remove premium_user gate in route_in_additonal_public_routes ---
+with open(auth_utils) as f:
+    src = f.read()
+
+old1 = (
+    '    try:\n'
+    '        if premium_user is not True:\n'
+    '            return False\n'
+    '        if general_settings is None:\n'
+    '            return False\n'
+    '\n'
+    '        routes_defined = general_settings.get("public_routes", [])'
+)
+new1 = (
+    '    try:\n'
+    '        if general_settings is None:\n'
+    '            return False\n'
+    '\n'
+    '        routes_defined = general_settings.get("public_routes", [])'
+)
+
+if old1 not in src:
+    print("ERROR: auth_utils patch target not found", file=sys.stderr)
+    sys.exit(1)
+
+with open(auth_utils, "w") as f:
+    f.write(src.replace(old1, new1, 1))
+print("auth_utils.py patched: removed premium_user gate from route_in_additonal_public_routes")
+
+# --- Patch 2: sync public_routes from local to module-level general_settings ---
 with open(proxy_server) as f:
     src = f.read()
 
-old = (
+old2 = (
     '        general_settings = config.get("general_settings", {})\n'
     '        if general_settings is None:\n'
     '            general_settings = {}'
 )
-new = (
+new2 = (
     '        general_settings = config.get("general_settings", {})\n'
     '        if general_settings is None:\n'
     '            general_settings = {}\n'
-    '        # Sync auth-related keys to module-level dict (workaround: general_settings\n'
-    '        # is a local var here — not in global declarations — so auth middleware\n'
-    '        # cannot see public_routes without this explicit sync).\n'
+    '        # Sync public_routes into module-level dict so auth_utils can read it.\n'
+    '        # load_config() has no `global general_settings`, so the local var never\n'
+    '        # reaches the module level without this explicit mutation.\n'
     '        import litellm.proxy.proxy_server as _ps\n'
-    '        for _k in ("public_routes",):\n'
-    '            if _k in general_settings:\n'
-    '                _ps.general_settings[_k] = general_settings[_k]'
+    '        if "public_routes" in general_settings:\n'
+    '            _ps.general_settings["public_routes"] = general_settings["public_routes"]'
 )
 
-if old not in src:
-    print("ERROR: patch target not found — check proxy_server.py version", file=sys.stderr)
+if old2 not in src:
+    print("ERROR: proxy_server patch target not found", file=sys.stderr)
     sys.exit(1)
 
-patched = src.replace(old, new, 1)
-
 with open(proxy_server, "w") as f:
-    f.write(patched)
-
-print("proxy_server.py patched: public_routes now synced to module-level general_settings")
+    f.write(src.replace(old2, new2, 1))
+print("proxy_server.py patched: public_routes synced to module-level general_settings")
 PYEOF
