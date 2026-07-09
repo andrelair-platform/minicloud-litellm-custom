@@ -307,6 +307,10 @@ guardrails:
 
 general_settings:
   store_model_in_db: true
+  # Public routes: allow unauthenticated read-only access for discovery endpoints.
+  # /v1/models lists available providers — safe to expose, no data returned.
+  # /health used by load balancers and external monitoring.
+  public_routes: ["/v1/models", "/health"]
   # LangfusePromptHandler: intercepts phi3-financial requests and injects the
   # production-labelled system prompt fetched from Langfuse (cached 5 min).
   # The handler is in /app/langfuse_prompt_handler.py (baked into the custom image).
