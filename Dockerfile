@@ -1,4 +1,4 @@
-ARG LITELLM_VERSION=1.90.3-prisma-v3
+ARG LITELLM_VERSION=1.90.3-prisma-v4
 FROM ghcr.io/berriai/litellm-database:main-latest
 
 # The image pre-downloads Prisma engine binaries to /root/.cache (mode 700, root-only).
