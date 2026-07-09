@@ -13,8 +13,8 @@ on:
       - '**.py'
 
 env:
-  HARBOR_REGISTRY: harbor.devandre.sbs
-  IMAGE_NAME: library/litellm
+  REGISTRY: ghcr.io
+  IMAGE_NAME: andrelair-platform/minicloud-litellm-custom
 
 jobs:
   build-and-push:
@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -43,13 +44,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Harbor
+      - name: Login to GHCR
         if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.HARBOR_REGISTRY }}
-          username: ${{ secrets.HARBOR_USER }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
         id: build
@@ -58,7 +59,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: ${{ github.event_name == 'push' }}
-          tags: ${{ env.HARBOR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -70,7 +71,7 @@ jobs:
         if: github.event_name == 'push' && github.ref_name != 'dev'
         run: |
           cosign sign --yes \
-            ${{ env.HARBOR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       - name: Update image tag in minicloud-gitops (main only)
         if: github.ref == 'refs/heads/main'
@@ -86,7 +87,7 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>/dev/null || true
           git config commit.gpgsign true
           git config user.signingkey FD6D39D681DEFA34
-          sed -i "s|harbor.devandre.sbs/library/litellm:.*|harbor.10.0.0.200.nip.io/library/litellm:${NEW_TAG}|g" \
+          sed -i "s|ghcr.io/andrelair-platform/minicloud-litellm-custom:.*|ghcr.io/andrelair-platform/minicloud-litellm-custom:${NEW_TAG}|g" \
             manifests/ai/01-litellm-deployment.yaml
           git add manifests/ai/01-litellm-deployment.yaml
           git diff --cached --quiet || \
