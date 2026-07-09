@@ -85,7 +85,7 @@ Callers use stable friendly names (`groq-fallback`, `phi4-mini`, `gpt-4o`). Lite
 
 Budget caps enforced at the LiteLLM VirtualKey layer — not the application. Requests that exceed the budget or reference a model outside the allowlist are rejected before reaching any provider.
 
-See [`docs/dept-key-governance.md`](docs/dept-key-governance.md) → [dept-key-governance.md in gitops](https://github.com/andrelair-platform/minicloud-gitops/blob/main/docs/ai-gateway/dept-key-governance.md) for the full allowlist.
+See [`docs/dept-key-governance.md`](docs/dept-key-governance.md) for the full allowlist.
 
 ---
 
