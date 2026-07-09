@@ -1,0 +1,121 @@
+name: Sync config to minicloud-gitops
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/litellm-config.yaml'
+      - 'langfuse_prompt_handler.py'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Clone minicloud-gitops
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          git clone https://x-access-token:${GH_TOKEN}@github.com/andrelair-platform/minicloud-gitops.git
+          cd minicloud-gitops
+          git config user.name 'AndreLiar'
+          git config user.email 'andrelaurelyvan.kanmegnetabouguie@ynov.com'
+          git config commit.gpgsign true
+          git config user.signingkey FD6D39D681DEFA34
+
+      - name: Generate 00-litellm-configmap.yaml
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+
+          with open("config/litellm-config.yaml") as f:
+              raw = f.read()
+
+          # Indent every line by 4 spaces for the ConfigMap literal block scalar
+          indented = "\n".join("    " + line if line else "" for line in raw.splitlines())
+
+          header = """# AUTO-GENERATED — do not edit directly.
+          # Source of truth: minicloud-litellm-custom/config/litellm-config.yaml
+          # Changes pushed to that file trigger this sync via CI.
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: litellm-config
+            namespace: ai
+          data:
+            config.yaml: |
+          """
+          # De-indent the heredoc (written with leading spaces for readability)
+          import textwrap
+          header = textwrap.dedent(header)
+
+          output = header + indented + "\n"
+
+          with open("minicloud-gitops/manifests/ai/00-litellm-configmap.yaml", "w") as f:
+              f.write(output)
+
+          print("Generated 00-litellm-configmap.yaml")
+          PYEOF
+
+      - name: Generate 15-langfuse-prompt-handler-configmap.yaml
+        run: |
+          python3 - <<'PYEOF'
+          import textwrap
+
+          with open("langfuse_prompt_handler.py") as f:
+              raw = f.read()
+
+          indented = "\n".join("    " + line if line else "" for line in raw.splitlines())
+
+          header = """# AUTO-GENERATED — do not edit directly.
+          # Source of truth: minicloud-litellm-custom/langfuse_prompt_handler.py
+          # Changes pushed to that file trigger this sync via CI.
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: langfuse-prompt-handler
+            namespace: ai
+            annotations:
+              # Mounted into the LiteLLM pod at /app/langfuse_prompt_handler.py
+              # (see manifests/ai/01-litellm-deployment.yaml volumeMount subPath: handler.py).
+              # Updating this ConfigMap + restarting the LiteLLM deployment is all that is needed
+              # to change the handler logic — no image rebuild required.
+          data:
+            handler.py: |
+          """
+          header = textwrap.dedent(header)
+
+          output = header + indented + "\n"
+
+          with open("minicloud-gitops/manifests/ai/15-langfuse-prompt-handler-configmap.yaml", "w") as f:
+              f.write(output)
+
+          print("Generated 15-langfuse-prompt-handler-configmap.yaml")
+          PYEOF
+
+      - name: Commit and push to minicloud-gitops
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          cd minicloud-gitops
+          git add \
+            manifests/ai/00-litellm-configmap.yaml \
+            manifests/ai/15-langfuse-prompt-handler-configmap.yaml
+          if git diff --cached --quiet; then
+            echo "No changes to commit — ConfigMaps already up to date."
+            exit 0
+          fi
+          SHA=$(cd .. && git rev-parse --short HEAD)
+          git commit -S -m "ci(litellm): sync config from minicloud-litellm-custom@${SHA}"
+          git push

@@ -1,0 +1,320 @@
+model_list:
+  # ── LOCAL MODELS (data stays on-premise) ──────────────────────────────
+  # phi3-financial: restricted to financial domain. Local-only — sensitive
+  # data must never leave the cluster for this model.
+  # System prompt is injected at request time by LangfusePromptHandler
+  # (general_settings.callbacks) — fetched from Langfuse label="production",
+  # cached 5 min per worker, fails open to PHI3_FINANCIAL_SYSTEM_PROMPT env var.
+  # Rollback: flip "production" label to an older version in Langfuse UI → instant,
+  # zero redeployment (next request after cache TTL uses the rolled-back prompt).
+  - model_name: phi3-financial
+    litellm_params:
+      model: ollama/phi4-mini
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: phi3-financial
+    litellm_params:
+      model: ollama/phi4-mini
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+  - model_name: phi3-financial
+    litellm_params:
+      model: ollama/phi4-mini
+      api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
+
+  # qwen3.5:4b — primary smart tier (replaces llama3.2:3b)
+  # Higher intelligence than llama3.2:3b at the same parameter scale.
+  # Native tool calling, large context window.
+  - model_name: qwen3.5:4b
+    litellm_params:
+      model: ollama/qwen3.5:4b
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: qwen3.5:4b
+    litellm_params:
+      model: ollama/qwen3.5:4b
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+
+  # phi4-mini — Microsoft CPU-optimised 3.8B (replaces phi3.5)
+  # Better instruction following and technical accuracy than phi3.5.
+  - model_name: phi4-mini
+    litellm_params:
+      model: ollama/phi4-mini
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: phi4-mini
+    litellm_params:
+      model: ollama/phi4-mini
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+  - model_name: phi4-mini
+    litellm_params:
+      model: ollama/phi4-mini
+      api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
+
+  # deepseek-r1:7b — cloud-first reasoning specialist.
+  # DeepSeek R1 API: 5–8 s vs 40+ s on CPU, frees Ollama slots for chat.
+  # Local fallback activates only if DeepSeek API is unavailable.
+  - model_name: deepseek-r1:7b
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  # deepseek-r1:7b-local — fallback when DeepSeek cloud is down
+  - model_name: deepseek-r1:7b-local
+    litellm_params:
+      model: ollama/deepseek-r1:7b
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: deepseek-r1:7b-local
+    litellm_params:
+      model: ollama/deepseek-r1:7b
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+
+  # llama3.2:1b — ultra-fast tier, local primary + Groq cloud fallback
+  - model_name: llama3.2:1b
+    litellm_params:
+      model: ollama/llama3.2:1b
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: llama3.2:1b
+    litellm_params:
+      model: ollama/llama3.2:1b
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+  - model_name: llama3.2:1b
+    litellm_params:
+      model: ollama/llama3.2:1b
+      api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
+
+  # ── EMBEDDINGS (for RAG pipelines and vector search) ────────────────
+  # nomic-embed-text — 274MB, 768-dim vectors, best-in-class for CPU RAG
+  # Used by Open WebUI RAG and accessible via /v1/embeddings for API users.
+  - model_name: nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+  - model_name: nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
+
+  # bge-m3 — kept for Open WebUI fallback; rag-ingest now uses text-embedding-3-small
+  - model_name: bge-m3
+    litellm_params:
+      model: ollama/bge-m3
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: bge-m3
+    litellm_params:
+      model: ollama/bge-m3
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+
+  # text-embedding-3-small — OpenAI 1536-dim cloud embedding model.
+  # Replaces bge-m3 for rag-ingest: 359 chunks embed in ~3s vs 14 min on CPU.
+  # Routed through LiteLLM so cost + latency appear in Langfuse traces.
+  - model_name: text-embedding-3-small
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ── VISION / MULTIMODAL (image description, OCR, scene understanding) ──
+  # moondream — 1.7B vision model, fast on CPU, basic OCR + image description
+  - model_name: moondream
+    litellm_params:
+      model: ollama/moondream
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: moondream
+    litellm_params:
+      model: ollama/moondream
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+
+  # llava-phi3 — 3.8B vision-language model, better quality than moondream
+  # Good for detailed image analysis, document reading, structured OCR.
+  - model_name: llava-phi3
+    litellm_params:
+      model: ollama/llava-phi3
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: llava-phi3
+    litellm_params:
+      model: ollama/llava-phi3
+      api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+
+  # ── CLOUD FALLBACK (activates only when local Ollama exhausts retries) ─
+  - model_name: groq-fallback
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  - model_name: mistral-large
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: mistral-small
+    litellm_params:
+      model: mistral/mistral-small-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  # ── CLOUD MODELS (premium + standard tiers via virtual key allowlist) ──
+  # OpenAI GPT-4o — premium reasoning, long context
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  # OpenAI GPT-4o-mini — cost-effective tier for standard departments
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Hugging Face Serverless Inference via featherless-ai provider (free tier)
+  # api-inference.huggingface.co is retired; router.huggingface.co/featherless-ai
+  # is the OpenAI-compatible free-tier endpoint — use openai/ provider type
+  - model_name: hf-qwen
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-1.5B-Instruct
+      api_base: https://router.huggingface.co/featherless-ai/v1
+      api_key: os.environ/HUGGINGFACE_API_KEY
+
+  - model_name: hf-gemma
+    litellm_params:
+      model: openai/google/gemma-2-2b-it
+      api_base: https://router.huggingface.co/featherless-ai/v1
+      api_key: os.environ/HUGGINGFACE_API_KEY
+
+  # Anthropic Claude — claude-sonnet (premium) + claude-haiku (standard+)
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-3-haiku-20240307
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Google Gemini 2.5 Flash — fast multimodal (standard+)
+  # model_name kept as gemini-2.0-flash for dept key allowlist compatibility
+  - model_name: gemini-2.0-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  # Google Gemini 2.5 Flash (premium variant) — premium departments only
+  # model_name kept as gemini-1.5-pro for dept key allowlist compatibility
+  - model_name: gemini-1.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  # ── NVIDIA NIM (build.nvidia.com — OpenAI-compatible, free inference tier) ─
+  # Base URL: https://integrate.api.nvidia.com/v1
+  # Uses openai/ provider type — NVIDIA's API is OpenAI-compatible.
+
+  # nvidia-nemotron-70b — NVIDIA-optimised Llama 70B, strong instruction following
+  - model_name: nvidia-nemotron-70b
+    litellm_params:
+      model: openai/nvidia/llama-3.1-nemotron-70b-instruct
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+
+  # nvidia-llama-8b — fast 8B tier on NVIDIA GPU infra
+  - model_name: nvidia-llama-8b
+    litellm_params:
+      model: openai/meta/llama-3.1-8b-instruct
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+
+  # nvidia-deepseek-r1 — DeepSeek R1 on NVIDIA infra (backup to DeepSeek API)
+  - model_name: nvidia-deepseek-r1
+    litellm_params:
+      model: openai/deepseek-ai/deepseek-r1
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+
+router_settings:
+  routing_strategy: least-busy
+  num_retries: 2
+  timeout: 300
+  # Circuit breaker: after 3 consecutive failures, mark backend as degraded for 60s.
+  # Prevents a slow/hung Ollama from draining the retry budget on every request.
+  cooldown_time: 60
+  allowed_fails: 3
+  # deepseek-r1:7b falls back to local Ollama if DeepSeek cloud is down.
+  # qwen3.5:4b / phi4-mini / llama3.2:1b fall back to Groq then DeepSeek chat.
+  fallbacks:
+    - deepseek-r1:7b:
+        - deepseek-r1:7b-local
+    - qwen3.5:4b:
+        - groq-fallback
+        - deepseek-chat
+    - phi4-mini:
+        - groq-fallback
+        - deepseek-chat
+    - llama3.2:1b:
+        - groq-fallback
+        - deepseek-chat
+
+litellm_settings:
+  # Prometheus scrapes /metrics without auth — safe: NetworkPolicy restricts
+  # port 4000 ingress to the monitoring namespace only.
+  require_auth_for_metrics_endpoint: false
+  # Drop params unsupported by a backend (e.g. encoding_format=base64 → Ollama)
+  # rather than failing the request. Needed for OpenAI client default behaviour.
+  drop_params: true
+  # Exact-match prompt caching — skips inference for identical prompts
+  cache: true
+  cache_params:
+    type: redis
+    host: litellm-cache.ai.svc.cluster.local
+    port: 6379
+    ttl: 600
+    namespace: litellm
+
+# PII / DLP guardrail — anonymizes prompts before they reach any cloud provider API.
+# phi3-financial is local-only (no cloud risk) but Ollama models with cloud fallbacks
+# (llama3.2:3b → Groq/DeepSeek) are also protected. Fail-open: if Presidio is
+# temporarily unavailable, requests pass through rather than blocking all AI access.
+# output_parse_pii removed: anonymizing LLM responses garbles sports/geo content
+# (France → <LOCATION>, player names → <PERSON>). Input-only protection is sufficient.
+# pii_entities_config: explicit allow-list drives Presidio Analyzer entity detection.
+# Entities NOT listed here are never sent to the analyzer and thus never masked.
+# DATE_TIME excluded: financial analysis requires years/dates/quarters (2024, Q3 2024).
+# LOCATION excluded: country/city references are essential for geographic financial data.
+# URL excluded: legitimate URLs appear in financial documents and should not be masked.
+guardrails:
+  - guardrail_name: "presidio-pii-masking"
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      presidio_analyzer_api_base: "http://presidio-analyzer.ai.svc.cluster.local:3000"
+      presidio_anonymizer_api_base: "http://presidio-anonymizer.ai.svc.cluster.local:3000"
+      default_on: true
+      pii_entities_config:
+        CREDIT_CARD: MASK
+        CRYPTO: MASK
+        EMAIL_ADDRESS: MASK
+        IBAN_CODE: MASK
+        IP_ADDRESS: MASK
+        NRP: MASK
+        PERSON: MASK
+        PHONE_NUMBER: MASK
+        US_SSN: MASK
+        US_ITIN: MASK
+        US_PASSPORT: MASK
+
+general_settings:
+  store_model_in_db: true
+  # LangfusePromptHandler: intercepts phi3-financial requests and injects the
+  # production-labelled system prompt fetched from Langfuse (cached 5 min).
+  # The handler is in /app/langfuse_prompt_handler.py (baked into the custom image).
+  callbacks: ["langfuse_prompt_handler.LangfusePromptHandler"]
+  success_callback: ["langfuse", "prometheus"]
+  failure_callback: ["prometheus"]
+  langfuse_host: "http://langfuse-web.langfuse.svc.cluster.local:3000"
+  # detect_secrets disabled: LiteLLM injects api_key into the scanned body, causing
+  # every non-master-key request to false-positive as a "secret". Presidio PII masking
+  # already covers the real DLP requirement on all pre-call messages.
+  detect_secrets_on_all_keys: false
