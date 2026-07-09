@@ -3,8 +3,14 @@ name: Build and Push
 on:
   push:
     branches: [main, staging, dev]
+    paths:
+      - 'Dockerfile'
+      - '**.py'
   pull_request:
     branches: [main, staging]
+    paths:
+      - 'Dockerfile'
+      - '**.py'
 
 env:
   HARBOR_REGISTRY: harbor.devandre.sbs
