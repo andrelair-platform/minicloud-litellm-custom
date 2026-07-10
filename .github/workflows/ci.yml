@@ -14,8 +14,9 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: andrelair-platform/minicloud-litellm-custom
+  HARBOR_REGISTRY: harbor.10.0.0.200.nip.io
+  IMAGE_NAME: library/litellm-custom
+  GITOPS_IMAGE: harbor.10.0.0.200.nip.io/library/litellm-custom
 
 jobs:
   build-and-push:
@@ -23,7 +24,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -42,16 +42,37 @@ jobs:
           echo "tag=${TAG}"       >> $GITHUB_OUTPUT
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
 
+      # ── Tailscale: join the minicloud tailnet so we can reach Harbor ────────
+      - name: Connect to Tailscale
+        if: github.event_name != 'pull_request'
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          version: latest
+
+      # ── Trust the minicloud self-signed CA so Docker accepts Harbor TLS ────
+      - name: Trust minicloud CA
+        if: github.event_name != 'pull_request'
+        run: |
+          sudo mkdir -p /etc/docker/certs.d/${{ env.HARBOR_REGISTRY }}
+          echo "${{ secrets.MINICLOUD_CA_CERT }}" | sudo tee /etc/docker/certs.d/${{ env.HARBOR_REGISTRY }}/ca.crt
+          echo "${{ secrets.MINICLOUD_CA_CERT }}" | sudo tee /usr/local/share/ca-certificates/minicloud-ca.crt
+          sudo update-ca-certificates
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [registry."harbor.10.0.0.200.nip.io"]
+              insecure = true
 
-      - name: Login to GHCR
+      - name: Login to Harbor
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Build and push
         id: build
@@ -60,7 +81,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.HARBOR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -72,7 +93,7 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref_name != 'dev'
         run: |
           cosign sign --yes \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+            ${{ env.HARBOR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       - name: Update image tag in minicloud-gitops (main only)
         if: github.ref == 'refs/heads/main'
@@ -88,7 +109,7 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>/dev/null || true
           git config commit.gpgsign true
           git config user.signingkey FD6D39D681DEFA34
-          sed -i "s|ghcr.io/andrelair-platform/minicloud-litellm-custom:.*|ghcr.io/andrelair-platform/minicloud-litellm-custom:${NEW_TAG}|g" \
+          sed -i "s|harbor\.[^/]*/library/litellm-custom:.*|${GITOPS_IMAGE}:${NEW_TAG}|g" \
             manifests/ai/01-litellm-deployment.yaml
           git add manifests/ai/01-litellm-deployment.yaml
           git diff --cached --quiet || \
