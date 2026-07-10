@@ -6,6 +6,7 @@ enterprise governance: PII/DLP guardrails, department key budgets, circuit break
 full Langfuse LLMOps tracing.
 
 **Live endpoint:** <https://litellm.devandre.sbs/v1/models>  
+**Admin UI:** <https://litellm.devandre.sbs/>  
 **Portfolio:** <https://www.devandre.sbs>  
 **Docs:** <https://andrelair-platform.github.io/minicloud-platform-docs/>
 
