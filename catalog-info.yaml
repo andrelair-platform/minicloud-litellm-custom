@@ -1,9 +1,143 @@
+---
 apiVersion: backstage.io/v1alpha1
-kind: Location
+kind: Component
 metadata:
   name: minicloud-litellm-custom
-  description: Redirects to the component entry in minicloud-gitops catalog
+  description: |
+    Level 2 custom LiteLLM image — extends the upstream LiteLLM image with
+    the minicloud CA certificate. LiteLLM acts as the AI gateway for the
+    platform: routes requests across 16 department API keys to cloud providers
+    (OpenAI, Anthropic, Groq, Gemini, Mistral) and on-cluster Ollama instances.
+    Exposes an OpenAI-compatible REST API consumed by Open WebUI and other clients.
+  annotations:
+    github.com/project-slug: andrelair-platform/minicloud-litellm-custom
+    backstage.io/source-location: url:https://github.com/andrelair-platform/minicloud-litellm-custom
+    argocd/app-name: ai-manifests
+    backstage.io/kubernetes-id: litellm
+  tags:
+    - docker
+    - litellm
+    - ai
+    - llm
+    - level2
+  links:
+    - url: https://chat.devandre.sbs
+      title: Open WebUI (AI chat via LiteLLM)
+      icon: web
 spec:
-  type: url
-  targets:
-    - https://raw.githubusercontent.com/andrelair-platform/minicloud-gitops/main/catalog-info.yaml
+  type: service
+  lifecycle: production
+  owner: group:default/andrelair-platform
+  system: minicloud-platform
+  providesApis:
+    - litellm-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: litellm-api
+  description: OpenAI-compatible AI gateway API. Routes requests to cloud LLMs and on-cluster Ollama instances across 16 department keys with TPM/RPM rate limiting.
+  annotations:
+    github.com/project-slug: andrelair-platform/minicloud-litellm-custom
+  tags:
+    - openai
+    - rest
+    - ai
+    - llm
+    - internal
+spec:
+  type: openapi
+  lifecycle: production
+  owner: group:default/andrelair-platform
+  system: minicloud-platform
+  definition: |
+    openapi: "3.0.3"
+    info:
+      title: minicloud LiteLLM AI Gateway
+      version: "1.0.0"
+      description: >
+        OpenAI-compatible AI gateway. Routes to cloud providers (OpenAI, Anthropic,
+        Groq, Gemini, Mistral, DeepSeek) and on-cluster Ollama (fast-heron, star-kitten,
+        fast-skunk). Authentication via department API keys (Bearer token).
+    servers:
+      - url: https://litellm.devandre.sbs
+        description: Public (via Cloudflare Tunnel)
+      - url: http://litellm.ai.svc.cluster.local:4000
+        description: In-cluster
+    security:
+      - bearerAuth: []
+    paths:
+      /v1/models:
+        get:
+          summary: List available models
+          operationId: listModels
+          responses:
+            "200":
+              description: List of available models
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      object:
+                        type: string
+                        example: list
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            object:
+                              type: string
+      /v1/chat/completions:
+        post:
+          summary: Chat completion
+          operationId: chatCompletion
+          description: OpenAI-compatible chat completion endpoint.
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [model, messages]
+                  properties:
+                    model:
+                      type: string
+                      example: llama3.2:3b
+                    messages:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          role:
+                            type: string
+                            enum: [system, user, assistant]
+                          content:
+                            type: string
+                    stream:
+                      type: boolean
+                    temperature:
+                      type: number
+          responses:
+            "200":
+              description: Chat completion response
+            "401":
+              description: Invalid or missing API key
+            "429":
+              description: Rate limit exceeded (TPM/RPM)
+      /health:
+        get:
+          summary: Health check
+          operationId: health
+          responses:
+            "200":
+              description: Service healthy
+    components:
+      securitySchemes:
+        bearerAuth:
+          type: http
+          scheme: bearer
+          description: Department API key (sk-...)
