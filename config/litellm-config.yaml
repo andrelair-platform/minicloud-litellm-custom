@@ -1,24 +1,34 @@
 model_list:
-  # ── LOCAL MODELS (data stays on-premise) ──────────────────────────────
-  # phi3-financial: restricted to financial domain. Local-only — sensitive
-  # data must never leave the cluster for this model.
+  # ── phi3-financial — domain-restricted AI financial assistant ─────────
   # System prompt is injected at request time by LangfusePromptHandler
   # (general_settings.callbacks) — fetched from Langfuse label="production",
   # cached 5 min per worker, fails open to PHI3_FINANCIAL_SYSTEM_PROMPT env var.
   # Rollback: flip "production" label to an older version in Langfuse UI → instant,
   # zero redeployment (next request after cache TTL uses the rolled-back prompt).
+  #
+  # Routing strategy: Groq primary (weight 10) → Ollama fallback (weight 1 each).
+  # Groq llama-3.1-8b-instant: sub-1s responses, stronger reasoning than phi4-mini.
+  # Ollama phi4-mini: local fallback when Groq quota exceeded or API unavailable.
+  - model_name: phi3-financial
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+      weight: 10
   - model_name: phi3-financial
     litellm_params:
       model: ollama/phi4-mini
       api_base: http://ollama.ai.svc.cluster.local:11434
+      weight: 1
   - model_name: phi3-financial
     litellm_params:
       model: ollama/phi4-mini
       api_base: http://ollama-secondary.ai.svc.cluster.local:11434
+      weight: 1
   - model_name: phi3-financial
     litellm_params:
       model: ollama/phi4-mini
       api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
+      weight: 1
 
   # qwen3.5:4b — primary smart tier (replaces llama3.2:3b)
   # Higher intelligence than llama3.2:3b at the same parameter scale.
