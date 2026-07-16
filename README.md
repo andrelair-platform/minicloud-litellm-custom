@@ -1,5 +1,9 @@
 # minicloud-litellm-custom — Enterprise AI Gateway
 
+[![CI](https://github.com/andrelair-platform/minicloud-litellm-custom/actions/workflows/ci.yml/badge.svg)](https://github.com/andrelair-platform/minicloud-litellm-custom/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Supply chain: cosign](https://img.shields.io/badge/supply%20chain-cosign%20signed-green)](https://github.com/sigstore/cosign)
+
 Custom LiteLLM image and configuration powering the Minicloud enterprise AI Gateway.
 Unified 8 cloud and local LLM providers behind a single OpenAI-compatible endpoint with
 enterprise governance: PII/DLP guardrails, department key budgets, circuit breaker, and
@@ -9,6 +13,22 @@ full Langfuse LLMOps tracing.
 **Admin UI:** <https://litellm.devandre.sbs/>  
 **Portfolio:** <https://www.devandre.sbs>  
 **Docs:** <https://andrelair-platform.github.io/minicloud-platform-docs/>
+
+---
+
+## Table of Contents
+
+- [Try It Now](#try-it-now)
+- [Architecture](#architecture)
+- [Department Key Governance](#department-key-governance-3-tiers)
+- [Live Screenshots](#live-screenshots)
+- [Repo Contents](#repo-contents)
+- [Config is source of truth](#config-is-source-of-truth)
+- [Making changes](#making-changes)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
@@ -130,6 +150,8 @@ All 25 eval traces (T1–T25) from the ArgoCD PostSync CI gate. Financial domain
 | `config/litellm-config.yaml` | **Canonical AI Gateway config** — model routing, guardrails, fallbacks, Presidio PII, Valkey cache, circuit breaker |
 | `langfuse_prompt_handler.py` | LiteLLM `CustomLogger` — injects the Langfuse production-labelled prompt into every `phi3-financial` request at runtime (5-min in-process cache, fail-open chain) |
 
+---
+
 ## Config is source of truth
 
 All AI Gateway changes — add a model, tweak routing, change Presidio rules, adjust circuit breaker — are made by editing `config/litellm-config.yaml` and pushing to `main`.
@@ -140,6 +162,8 @@ langfuse_prompt_handler.py   →  CI sync  →  minicloud-gitops/manifests/ai/15
 ```
 
 **Never edit `manifests/ai/00-litellm-configmap.yaml` directly in gitops** — the next CI run overwrites it.
+
+---
 
 ## Making changes
 
@@ -157,16 +181,63 @@ langfuse_prompt_handler.py   →  CI sync  →  minicloud-gitops/manifests/ai/15
 # 2. Push to main → CI builds → pushes to Harbor → cosign-signs → bumps gitops image tag
 ```
 
+---
+
+## CI/CD Pipeline
+
+Every push to `main` triggers `.github/workflows/ci.yml`:
+
+```
+push to main
+    │
+    ├─ 1. Connect to Tailscale (OAuth — TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET)
+    ├─ 2. Trust minicloud CA on the runner (raw PEM — no base64 decode)
+    ├─ 3. Sync config/litellm-config.yaml → minicloud-gitops ConfigMap
+    ├─ 4. docker build (if Dockerfile changed) → push to harbor.10.0.0.200.nip.io/library/litellm-custom:<sha>
+    ├─ 5. Trivy scan — fails on unfixed CRITICAL CVEs
+    ├─ 6. cosign sign (keyless — GitHub OIDC → Sigstore Fulcio)
+    └─ 7. GPG-signed commit to minicloud-gitops
+              └─ ArgoCD webhook → rolling update in ai namespace
+```
+
+**Required secrets:**
+
+All 7 secrets are **org-level on `andrelair-platform`** (visibility: all). New repos inherit them automatically — no per-repo setup needed.
+
+| Secret | Purpose |
+|---|---|
+| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID — joins tailnet as `tag:ci` |
+| `TS_OAUTH_SECRET` | Tailscale OAuth secret |
+| `MINICLOUD_CA_CERT` | Self-signed CA PEM — lets Docker daemon and cosign trust Harbor TLS |
+| `HARBOR_USER` | Harbor registry username |
+| `HARBOR_PASSWORD` | Harbor registry password |
+| `GITOPS_TOKEN` | GitHub PAT (`repo` scope) for committing to `minicloud-gitops` |
+| `GPG_PRIVATE_KEY` | Armored GPG private key for signing gitops commits (key ID `FD6D39D681DEFA34`) |
+
+---
+
 ## Security
 
 - `phi3-financial` is **local-only** — sensitive financial data must never leave the cluster. Routed exclusively to on-premise Ollama instances.
 - Cloud models (GPT-4o, Claude, Gemini, DeepSeek) are gated behind Presidio PII masking at the `pre_call` guardrail stage.
 - All 8 provider API keys injected from HashiCorp Vault via External Secrets Operator — never stored in this repo.
 
-## CI secrets required
+---
 
-| Secret | Used by |
-|---|---|
-| `GITOPS_TOKEN` | Push signed commits to minicloud-gitops |
-| `GPG_PRIVATE_KEY` | GPG-sign commits |
-| `HARBOR_USER` / `HARBOR_PASSWORD` | Push Docker image to Harbor |
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `sk-portfolio-demo` returns 429 | Public demo key hit its $0.50/30d budget cap | The cap resets monthly — this is expected; use a department key for real workloads |
+| Model returns 404 | Virtual model alias not in `config/litellm-config.yaml` | Check `curl https://litellm.devandre.sbs/v1/models` for the available alias list |
+| Presidio strips financial context | `DATE_TIME` or `LOCATION` entities being scrubbed | These two entities are excluded by default — check if `config/litellm-config.yaml` was accidentally changed |
+| Circuit breaker quarantines a provider | Provider returned ≥ 3 consecutive errors | Cooldown is 60s — traffic auto-routes to the fallback; the quarantined provider recovers automatically |
+| `phi3-financial` routes to a cloud provider | Ollama pod not Running | Check `kubectl get pods -n ai -l app=ollama`; phi3-financial is local-only and will fail if no Ollama pod is available |
+| Grafana dashboard shows no spend data | LiteLLM PostgreSQL datasource misconfigured | Verify the datasource URL points to `postgresql-ai.ai.svc.cluster.local:5432` and the `litellm` database |
+| Config change not picked up by ArgoCD | `manifests/ai/00-litellm-configmap.yaml` was manually edited | Never edit that file directly — CI sync overwrites it; revert the manual edit and push `config/litellm-config.yaml` |
+
+---
+
+## License
+
+[MIT](LICENSE) © andrelair-platform
