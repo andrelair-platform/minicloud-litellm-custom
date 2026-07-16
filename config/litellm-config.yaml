@@ -7,8 +7,10 @@ model_list:
   # zero redeployment (next request after cache TTL uses the rolled-back prompt).
   #
   # Routing strategy: Groq primary (weight 10) → Ollama fallback (weight 1 each).
-  # Groq llama-3.1-8b-instant: sub-1s responses, stronger reasoning than phi4-mini.
-  # Ollama phi4-mini: local fallback when Groq quota exceeded or API unavailable.
+  # Groq llama-3.1-8b-instant: sub-1s responses on LPU hardware.
+  # Ollama qwen2.5:7b: local fallback when Groq quota exceeded or API unavailable.
+  # Upgraded from phi4-mini (3.8B) to qwen2.5:7b-instruct-q4_k_m — better reasoning
+  # and French-language support at equivalent RAM footprint (~4.5 GB vs ~2.5 GB).
   - model_name: phi3-financial
     litellm_params:
       model: groq/llama-3.1-8b-instant
@@ -16,17 +18,17 @@ model_list:
       weight: 10
   - model_name: phi3-financial
     litellm_params:
-      model: ollama/phi4-mini
+      model: ollama/qwen2.5:7b-instruct-q4_k_m
       api_base: http://ollama.ai.svc.cluster.local:11434
       weight: 1
   - model_name: phi3-financial
     litellm_params:
-      model: ollama/phi4-mini
+      model: ollama/qwen2.5:7b-instruct-q4_k_m
       api_base: http://ollama-secondary.ai.svc.cluster.local:11434
       weight: 1
   - model_name: phi3-financial
     litellm_params:
-      model: ollama/phi4-mini
+      model: ollama/qwen2.5:7b-instruct-q4_k_m
       api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
       weight: 1
 
@@ -42,19 +44,22 @@ model_list:
       model: ollama/qwen3.5:4b
       api_base: http://ollama-secondary.ai.svc.cluster.local:11434
 
-  # phi4-mini — Microsoft CPU-optimised 3.8B (replaces phi3.5)
-  # Better instruction following and technical accuracy than phi3.5.
-  - model_name: phi4-mini
+  # qwen2.5:7b — primary general-purpose chat model (replaces phi4-mini 3.8B)
+  # Qwen 2.5 7B instruct Q4_K_M: top-ranked open 7B on OpenLLM leaderboard.
+  # +15% MMLU vs phi4-mini, +35% HumanEval, native French/multilingual support.
+  # RAM: ~4.5 GB Q4_K_M — fits within the 8 Gi Ollama memory limit.
+  # Ollama env already sets NUM_CTX=4096, FLASH_ATTENTION=1, KV_CACHE_TYPE=q8_0.
+  - model_name: qwen2.5:7b
     litellm_params:
-      model: ollama/phi4-mini
+      model: ollama/qwen2.5:7b-instruct-q4_k_m
       api_base: http://ollama.ai.svc.cluster.local:11434
-  - model_name: phi4-mini
+  - model_name: qwen2.5:7b
     litellm_params:
-      model: ollama/phi4-mini
+      model: ollama/qwen2.5:7b-instruct-q4_k_m
       api_base: http://ollama-secondary.ai.svc.cluster.local:11434
-  - model_name: phi4-mini
+  - model_name: qwen2.5:7b
     litellm_params:
-      model: ollama/phi4-mini
+      model: ollama/qwen2.5:7b-instruct-q4_k_m
       api_base: http://ollama-tertiary.ai.svc.cluster.local:11434
 
   # deepseek-r1:7b — cloud-first reasoning specialist.
@@ -260,7 +265,7 @@ router_settings:
     - qwen3.5:4b:
         - groq-fallback
         - deepseek-chat
-    - phi4-mini:
+    - qwen2.5:7b:
         - groq-fallback
         - deepseek-chat
     - llama3.2:1b:
