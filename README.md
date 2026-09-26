@@ -23,7 +23,7 @@ full Langfuse LLMOps tracing.
 - [Department Key Governance](#department-key-governance-3-tiers)
 - [Live Screenshots](#live-screenshots)
 - [Repo Contents](#repo-contents)
-- [Config is source of truth](#config-is-source-of-truth)
+- [Runtime config lives in gitops](#runtime-config-lives-in-gitops-config-sync-retired-2026-09-26)
 - [Making changes](#making-changes)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Security](#security)
@@ -152,16 +152,17 @@ All 25 eval traces (T1–T25) from the ArgoCD PostSync CI gate. Financial domain
 
 ---
 
-## Config is source of truth
+## Runtime config lives in gitops (config sync retired 2026-09-26)
 
-All AI Gateway changes — add a model, tweak routing, change Presidio rules, adjust circuit breaker — are made by editing `config/litellm-config.yaml` and pushing to `main`.
+**The LiteLLM runtime config is maintained directly in
+`minicloud-gitops/manifests/ai/00-litellm-configmap.yaml`.** Edit it there → ArgoCD reconciles it (~3 min).
 
-```
-config/litellm-config.yaml   →  CI sync  →  minicloud-gitops/manifests/ai/00-litellm-configmap.yaml
-langfuse_prompt_handler.py   →  CI sync  →  minicloud-gitops/manifests/ai/15-langfuse-prompt-handler-configmap.yaml
-```
-
-**Never edit `manifests/ai/00-litellm-configmap.yaml` directly in gitops** — the next CI run overwrites it.
+> The old `config/litellm-config.yaml` → CI-sync → gitops flow was **retired**. The source here had drifted
+> months out of date, so a push would have regenerated the whole gateway from stale config (dead Ollama
+> models, missing every current model) and taken it down. `sync-config.yml`, the stale
+> `config/litellm-config.yaml`, and the phi3-only `langfuse_prompt_handler.py` were removed.
+> **This repo now builds only the custom LiteLLM image** (`Dockerfile` → `ci.yml` → Harbor); it no longer
+> owns the runtime config.
 
 ---
 
@@ -169,16 +170,11 @@ langfuse_prompt_handler.py   →  CI sync  →  minicloud-gitops/manifests/ai/15
 
 ```bash
 # Config change (model, routing, guardrail, circuit breaker)
-# 1. Edit config/litellm-config.yaml
-# 2. Push to main → CI syncs to gitops → ArgoCD picks up within ~3 min
+# → Edit minicloud-gitops/manifests/ai/00-litellm-configmap.yaml directly → ArgoCD reconciles (~3 min)
 
-# Handler change (prompt injection logic)
-# 1. Edit langfuse_prompt_handler.py
-# 2. Push to main → same CI flow, no image rebuild needed
-
-# Image change (Dockerfile, new Python dependency)
+# Image change (Dockerfile, base patch, new Python dependency)
 # 1. Edit Dockerfile
-# 2. Push to main → CI builds → pushes to Harbor → cosign-signs → bumps gitops image tag
+# 2. Push to main → ci.yml builds → pushes to Harbor → cosign-signs → bumps the gitops image tag
 ```
 
 ---
@@ -192,11 +188,10 @@ push to main
     │
     ├─ 1. Connect to Tailscale (OAuth — TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET)
     ├─ 2. Trust minicloud CA on the runner (raw PEM — no base64 decode)
-    ├─ 3. Sync config/litellm-config.yaml → minicloud-gitops ConfigMap
-    ├─ 4. docker build (if Dockerfile changed) → push to harbor.10.0.0.200.nip.io/library/litellm-custom:<sha>
-    ├─ 5. Trivy scan — fails on unfixed CRITICAL CVEs
-    ├─ 6. cosign sign (keyless — GitHub OIDC → Sigstore Fulcio)
-    └─ 7. GPG-signed commit to minicloud-gitops
+    ├─ 3. docker build → push to harbor.10.0.0.200.nip.io/library/litellm-custom:<sha>
+    ├─ 4. Trivy scan — fails on unfixed CRITICAL CVEs
+    ├─ 5. cosign sign (keyless — GitHub OIDC → Sigstore Fulcio)
+    └─ 6. GPG-signed image-tag bump commit to minicloud-gitops (01-litellm-deployment.yaml)
               └─ ArgoCD webhook → rolling update in ai namespace
 ```
 
