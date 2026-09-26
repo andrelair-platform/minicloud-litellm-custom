@@ -1,12 +1,17 @@
-ARG LITELLM_VERSION=1.90.3-prisma-v5
-FROM ghcr.io/berriai/litellm-database:main-latest
+# Pin the base by DIGEST, not the mutable `main-latest` tag. Building on a moving
+# tag makes builds non-reproducible and breaks intermittently when upstream re-pushes
+# main-latest mid-build (observed 2026-09-26: `chmod: /root/.cache: No such file or
+# directory` on a transient base state). Digest below = ghcr.io/berriai/litellm-database
+# `main-latest` verified good on 2026-09-26. Bump it deliberately when upgrading LiteLLM.
+FROM ghcr.io/berriai/litellm-database@sha256:23d1d1f0e76c4bbd8a8a767ce6c4495a19367d87ad80950f9f931dddbb5ad8d7
 
 # The image pre-downloads Prisma engine binaries to /root/.cache (mode 700, root-only).
 # prisma-client-py's generated BINARY_PATHS dict hardcodes those paths. When running
 # as non-root (UID 1000 in k8s), Path.exists() on those paths raises PermissionError
 # before PRISMA_QUERY_ENGINE_BINARY can override anything. Fix: make the cache world-
 # readable so the hardcoded paths are directly accessible without any env var overrides.
-RUN chmod -R 755 /root /root/.cache /root/.cache/prisma-python
+# mkdir -p guards against a future base image that lays the cache out differently.
+RUN mkdir -p /root/.cache/prisma-python && chmod -R 755 /root
 
 # libatomic1: required by the Node.js binary that prisma-client-py downloads at
 # runtime to run Prisma CLI migrations. Missing from the base image — causes
